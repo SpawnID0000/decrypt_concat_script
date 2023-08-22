@@ -10,8 +10,10 @@ file_name_part_ = file_name + "_part_"
 file_path = os.path.join(os.getcwd(), file_name)
 
 directory = os.path.dirname(file_path)
-gpg_path = "/usr/local/bin/gpg"  # Replace with your actual path to gpg
-os.environ["PATH"] += os.pathsep + "/usr/local/bin"
+gpg_path = "/usr/bin/gpg"  # Replace with your actual path to gpg
+os.environ["PATH"] += os.pathsep + "/usr/bin"
+#gpg_path = "/usr/local/bin/gpg"  # Replace with your actual path to gpg
+#os.environ["PATH"] += os.pathsep + "/usr/local/bin"
 
 # Decrypt file
 for file in os.listdir(directory):
