@@ -31,7 +31,12 @@ def process_zip_package(zip_info):
     try:
         os.makedirs(extracted_dir, exist_ok=True)
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extracted_dir)
+            # Extract files directly into extracted_dir, ignoring any internal directory structure
+            for zip_info in zip_ref.infolist():
+                if zip_info.filename.endswith('/'):  # Skip directories
+                    continue
+                zip_info.filename = os.path.basename(zip_info.filename)  # Extract only the file, not the full path
+                zip_ref.extract(zip_info, extracted_dir)
 
         decrypted_files = {}
         for aes_file in sorted(os.listdir(extracted_dir)):
@@ -61,11 +66,12 @@ def process_zip_package(zip_info):
                 fout.write(data)
 
         os.rmdir(extracted_dir)
-        print(f"Finished processing ZIP package: {zip_path}")
         return f"Processed ZIP package: {zip_path}"
 
     except Exception as e:
         return f"Error processing package {zip_path}: {e}"
+
+
 
 def main():
     script_name = os.path.splitext(os.path.basename(__file__))[0]
@@ -90,10 +96,10 @@ def main():
     with Pool() as pool:
         results = pool.map(process_zip_package, zip_packages_to_process)
 
-    # # Logging results
-    # for result in results:
-    #     logging.info(result)  # Comment out or remove this line to suppress detailed logging
-    #     print(result)
+    # Logging results
+    for result in results:
+        logging.info(result)  # Comment out or remove this line to suppress detailed logging
+        print(result)
 
     total_duration = time.time() - start_time
     logging.info(f"Total script execution duration: {total_duration:.2f} seconds")
