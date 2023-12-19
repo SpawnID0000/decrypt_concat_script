@@ -5,6 +5,6 @@ _Note: For use with split_encrypt_script (https://github.com/SpawnID0000/split_e
 
 Before running this script, install or upgrade Python's cryptography module if not already running the latest:
 
-     _pip show cryptography_
+     pip show cryptography
 
-     _pip install --upgrade cryptography_
+     pip install --upgrade cryptography
