@@ -9,7 +9,14 @@ from cryptography.hazmat.primitives import padding
 from cryptography.hazmat.backends import default_backend
 from pathlib import Path
 
-# AES decryption function
+try:
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives import padding
+    from cryptography.hazmat.backends import default_backend
+except ImportError:
+    print("The cryptography module is not installed. Please install it using 'pip install cryptography'")
+    exit(1)
+
 def aes_decrypt(encrypted_data, passphrase):
     backend = default_backend()
     key = passphrase.ljust(32)[:32].encode()
@@ -23,28 +30,27 @@ def aes_decrypt(encrypted_data, passphrase):
 
     return decrypted_data
 
-# Function to process a single ZIP package
-def process_zip_package(zip_info):
-    zip_path, input_root, output_root = zip_info
-    extracted_dir = os.path.join(os.path.dirname(zip_path), Path(zip_path).stem)
+def process_package(package_info):
+    path, input_root, output_root, is_zip = package_info
+    extracted_dir = os.path.join(os.path.dirname(path), Path(path).stem) if is_zip else path
 
     try:
-        os.makedirs(extracted_dir, exist_ok=True)
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            # Extract files directly into extracted_dir, ignoring any internal directory structure
-            for zip_info in zip_ref.infolist():
-                if zip_info.filename.endswith('/'):  # Skip directories
-                    continue
-                zip_info.filename = os.path.basename(zip_info.filename)  # Extract only the file, not the full path
-                zip_ref.extract(zip_info, extracted_dir)
+        if is_zip:
+            os.makedirs(extracted_dir, exist_ok=True)
+            with zipfile.ZipFile(path, 'r') as zip_ref:
+                for zip_info in zip_ref.infolist():
+                    if zip_info.filename.endswith('/'):  # Skip directories
+                        continue
+                    zip_info.filename = os.path.basename(zip_info.filename)
+                    zip_ref.extract(zip_info, extracted_dir)
 
         decrypted_files = {}
         for aes_file in sorted(os.listdir(extracted_dir)):
             if aes_file.endswith('.aes'):
                 full_path = os.path.join(extracted_dir, aes_file)
                 parts = Path(aes_file).stem.split('_')
-                passphrase = '_'.join(parts[:-2])  # Remove '_part_xx' and '.ext'
-                original_ext = '.' + aes_file.split('.')[-2]  # Get the original extension
+                passphrase = '_'.join(parts[:-2])
+                original_ext = '.' + aes_file.rsplit('.', 2)[-2] if '.' in aes_file else ''
 
                 with open(full_path, 'rb') as f:
                     encrypted_data = f.read()
@@ -57,52 +63,76 @@ def process_zip_package(zip_info):
                 os.remove(full_path)
 
         for passphrase, data in decrypted_files.items():
-            relative_dir = Path(zip_path).parent.relative_to(input_root)
-            output_dir = Path(output_root, relative_dir)
-            os.makedirs(output_dir, exist_ok=True)
+            output_file_path = Path(output_root, f"{passphrase}{original_ext}")
+            os.makedirs(output_file_path.parent, exist_ok=True)
 
-            output_file_path = output_dir / f"{passphrase}{original_ext}"
             with open(output_file_path, 'wb') as fout:
                 fout.write(data)
 
-        os.rmdir(extracted_dir)
-        return f"Processed ZIP package: {zip_path}"
+        if not os.listdir(extracted_dir):
+            os.rmdir(extracted_dir)
+
+        return f"Processed package or folder: {path}"
 
     except Exception as e:
-        return f"Error processing package {zip_path}: {e}"
+        return f"Error processing package or folder {path}: {e}"
 
+def process_directory_or_file(input_path, output_dir):
+    items_to_process = []
+    if os.path.isdir(input_path):
+        for root, dirs, files in os.walk(input_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]  # Skip hidden directories
+            for file in files:
+                if file.endswith('.zip') and not file.startswith('._'):
+                    items_to_process.append((os.path.join(root, file), input_path, output_dir, True))
+            for dir in dirs:
+                dir_path = os.path.join(root, dir)
+                items_to_process.append((dir_path, input_path, output_dir, False))
+    elif os.path.isfile(input_path) and input_path.endswith('.zip'):
+        items_to_process.append((input_path, os.path.dirname(input_path), output_dir, True))
+    else:
+        raise ValueError("Input path must be a directory or a .zip file")
 
+    with Pool() as pool:
+        return pool.map(process_package, items_to_process)
+
+def resolve_path(path):
+    """Resolve the given path to an absolute path."""
+    return os.path.abspath(path)
 
 def main():
-    script_name = os.path.splitext(os.path.basename(__file__))[0]
-    log_file = f"{script_name}_log.txt"
-    logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-    start_time = time.time()
-
-    parser = argparse.ArgumentParser(description='Decrypt and concatenate audio files. \n\nUsage: python3 decrypt_concat_script.py path/to/encrypted path/to/output',
-                                     formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument('input_dir', type=str, help='Path to the directory with encrypted files')
-    parser.add_argument('output_dir', type=str, help='Path to the output directory')
+    parser = argparse.ArgumentParser(description='Decrypt and concatenate audio files.')
+    parser.add_argument('input_path', type=str, help='Directory name or path to the directory or zip file with encrypted files')
+    parser.add_argument('output_dir', type=str, nargs='?', default=os.getcwd(),
+                        help='Directory name or path to the output directory (optional, defaults to current working directory)')
+    parser.add_argument('--log', action='store_true', help='Enable logging to a file (optional, disabled by default)')
     args = parser.parse_args()
 
-    zip_packages_to_process = []
-    for root, dirs, files in os.walk(args.input_dir):
-        for file in files:
-            if file.endswith('.zip'):
-                zip_packages_to_process.append((os.path.join(root, file), args.input_dir, args.output_dir))
+    if args.log:
+        script_name = os.path.splitext(os.path.basename(__file__))[0]
+        log_file = f"{script_name}_log.txt"
+        logging.basicConfig(filename=log_file, level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-    print("Processing ZIP packages...")
-    with Pool() as pool:
-        results = pool.map(process_zip_package, zip_packages_to_process)
+    input_path = resolve_path(args.input_path)
+    output_dir = resolve_path(args.output_dir)
 
-    # Logging results
-    for result in results:
-        logging.info(result)  # Comment out or remove this line to suppress detailed logging
-        print(result)
+    print(f"Processing items from {input_path}... Output will be saved to {output_dir}")
+    start_time = time.time()
+
+    try:
+        results = process_directory_or_file(input_path, output_dir)
+        for result in results:
+            if args.log:
+                logging.info(result)
+            print(result)
+    except ValueError as e:
+        if args.log:
+            logging.error(str(e))
+        print(str(e))
 
     total_duration = time.time() - start_time
-    logging.info(f"Total script execution duration: {total_duration:.2f} seconds")
+    if args.log:
+        logging.info(f"Total script execution duration: {total_duration:.2f} seconds")
     print("Decryption and concatenation complete!")
 
 if __name__ == "__main__":
