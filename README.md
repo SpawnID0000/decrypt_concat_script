@@ -9,17 +9,6 @@ Before running this script, install or upgrade Python's cryptography module if n
 
      pip install --upgrade cryptography
 
-Additional usage notes:
+Run the script using the following command line format:
 
-- Executing the script requires the following command line format:
-
-        python3 decrypt_concat_script.py path/to/encrypted path/to/output
-
-- Run the script with working directory set to the same location as the script
-
-- 'path/to/encryted' is the directory where the target zip files are stored
-     - Include the full path (e.g. using drag & drop)
-     - Do not include file in the path (i.e. directory only)
- 
-- 'path/to/output' is the directory where the output files should be saved
-     - Again, include the full path
+     python3 decrypt_concat_script.py [-h] [--log] input_path [output_dir]
